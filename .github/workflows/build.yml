@@ -337,18 +337,24 @@ jobs:
           APP: ${{ steps.params.outputs.app }}
         run: |
           set -euo pipefail
-          # List published (non-draft, non-prerelease) releases matching the app
-          # prefix, keep the 3 most recent, delete the rest (with their tags).
+          # List published (non-draft) releases matching the app prefix, keep
+          # the 3 most recently published, delete the rest (with their tags).
+          # publishedAt is used instead of createdAt to reflect actual release
+          # graduation time — draft creation time could misorder a just-signed
+          # release below an older, earlier-drafted one.
           gh release list \
             --repo ${{ github.repository }} \
             --limit 100 \
-            --json tagName,isDraft,createdAt \
+            --json tagName,isDraft,publishedAt \
             | jq -r --arg prefix "${APP}-v" '
                 [ .[] | select(.isDraft == false)
                        | select(.tagName | startswith($prefix)) ]
-                | sort_by(.createdAt) | reverse | .[3:] | .[].tagName
+                | sort_by(.publishedAt) | reverse | .[3:] | .[].tagName
               ' \
-            | while read -r old_tag; do
+            | while IFS= read -r old_tag; do
+                # Strip trailing CR so Windows runner bash (Git Bash)
+                # doesn't append \r to the tag name and break gh's URL.
+                old_tag="${old_tag%$'\r'}"
                 [[ -z "${old_tag}" ]] && continue
                 echo "Deleting old release: ${old_tag}"
                 gh release delete "${old_tag}" \
